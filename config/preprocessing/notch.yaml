@@ -1,0 +1,5 @@
+preprocessing:
+  method: "notch"
+  notch:
+    freq: 50.0
+    quality_factor: 30.0

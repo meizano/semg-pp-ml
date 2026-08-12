@@ -1,0 +1,6 @@
+preprocessing:
+  method: "wavelet"
+  wavelet:
+    wavelet: "db4"
+    level: 4
+    threshold_mode: "soft"

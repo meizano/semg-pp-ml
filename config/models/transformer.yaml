@@ -1,0 +1,4 @@
+model:
+  transformer_heads: 4
+  transformer_ff_dim: 128
+  attention_key_dim: 64

@@ -1,0 +1,4 @@
+model:
+  tcn_filters: 64
+  tcn_kernel_size: 3
+  tcn_dilations: [1, 2, 4, 8, 16]

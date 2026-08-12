@@ -1,0 +1,9 @@
+preprocessing:
+  method: "vmd"
+  vmd:
+    alpha: 2000
+    k: 3
+    tau: 0
+    dc: 0
+    init: 1
+    tol: 1e-7

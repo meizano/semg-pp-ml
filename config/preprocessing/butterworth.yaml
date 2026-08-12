@@ -1,0 +1,6 @@
+preprocessing:
+  method: "butterworth"
+  butterworth:
+    order: 4
+    low_hz: 10.0
+    high_hz: 400.0

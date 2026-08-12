@@ -1,0 +1,5 @@
+preprocessing:
+  method: "kalman"
+  kalman:
+    q: 1e-5
+    r: 0.05

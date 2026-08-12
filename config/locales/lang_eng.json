@@ -1,0 +1,20 @@
+{
+  "app_title": "sEMG Preprocessing & ML Platform (NinaPro DB8)",
+  "sidebar_language": "Language / Bahasa",
+  "nav_home": "🏠 Dashboard",
+  "nav_preprocessing": "⚡ Preprocessing Lab",
+  "nav_training": "🧠 Model Training Lab",
+  "nav_grid": "🔍 Grid Search & Experiments",
+  "nav_artifacts": "📦 Saved Artifacts & Models",
+  "nav_tinyml": "⚡ TinyML & ONNX Export",
+  "dataset_checker_title": "📊 Dataset Inspector & Paradigm Guide",
+  "classification_desc": "Classification: Uses discrete stimulus labels for gesture recognition.",
+  "regression_desc": "Regression: Uses continuous CyberGlove joint angles (glove) for motion kinematics.",
+  "training_in_progress": "Training model in progress...",
+  "evaluation_in_progress": "Evaluating test performance & benchmarks...",
+  "benchmark_title": "⚡ Real-Time Performance & Resource Profiling",
+  "wps_metric": "Windows Per Second (WPS)",
+  "latency_metric": "Inference Latency (ms)",
+  "cpu_metric": "CPU Usage (%)",
+  "ram_metric": "RAM Footprint (MB)"
+}

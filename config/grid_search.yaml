@@ -1,0 +1,33 @@
+preps:
+  - "raw"
+  - "butterworth"
+  - "kalman"
+  - "butterworth_kalman"
+  - "vmd"
+models:
+  - "svm"
+  - "rf"
+  - "knn"
+  - "lda"
+  - "nb"
+  - "mlp"
+  - "cnn1d"
+  - "cnn2d"
+  - "lstm"
+  - "bilstm"
+  - "gru_lstm"
+  - "cnn_lstm"
+  - "tcn"
+  - "transformer"
+  - "cnn_transformer"
+  - "mafn"
+  - "msemg"
+  - "gcn"
+  - "gat"
+exclude_pairs:
+  - ["raw", "lda"]
+  - ["raw", "svm"]
+  - ["raw", "knn"]
+  - ["raw", "nb"]
+skip_visualization: false
+max_parallel: 2

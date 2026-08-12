@@ -1,0 +1,6 @@
+model:
+  cnn_filters_1: 64
+  cnn_filters_2: 128
+  cnn_filters_3: 256
+  cnn_kernel: 3
+  pool_size: 2

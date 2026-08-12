@@ -1,0 +1,20 @@
+{
+  "app_title": "Platform Preprocessing & ML sEMG (NinaPro DB8)",
+  "sidebar_language": "Bahasa / Language",
+  "nav_home": "🏠 Dashboard Utama",
+  "nav_preprocessing": "⚡ Lab Preprocessing",
+  "nav_training": "🧠 Lab Pelatihan Model",
+  "nav_grid": "🔍 Pencarian Grid & Eksperimen",
+  "nav_artifacts": "📦 Arsip Model & Dataset",
+  "nav_tinyml": "⚡ Ekspor TinyML & ONNX",
+  "dataset_checker_title": "📊 Pemeriksa Dataset & Panduan Paradigma",
+  "classification_desc": "Klasifikasi: Menggunakan label stimulus diskrit untuk pengenalan gestur.",
+  "regression_desc": "Regresi: Menggunakan sudut sendi kontinu CyberGlove (glove) untuk kinematika gerakan.",
+  "training_in_progress": "Pelatihan model sedang berjalan...",
+  "evaluation_in_progress": "Mengevaluasi performa pengujian & tolok ukur...",
+  "benchmark_title": "⚡ Performa Waktu Nyata & Profiling Sumber Daya",
+  "wps_metric": "Jendela Per Detik (WPS)",
+  "latency_metric": "Latensi Inferensi (ms)",
+  "cpu_metric": "Penggunaan CPU (%)",
+  "ram_metric": "Memori RAM (MB)"
+}

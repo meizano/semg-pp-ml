@@ -1,0 +1,9 @@
+preprocessing:
+  method: "butterworth_kalman"
+  butterworth:
+    order: 4
+    low_hz: 10.0
+    high_hz: 400.0
+  kalman:
+    q: 1e-5
+    r: 0.05
