@@ -98,7 +98,7 @@ if run_btn or "grid_results_cache" in st.session_state:
 
     disp_cols = [c for c in ["prep", "model", "accuracy", "f1_score", "precision", "recall", "specificity_mean", "inference_latency_ms", "model_params_total", "status"] if c in df.columns]
 
-    subset_cols = [c for c in ["accuracy", "f1_score"] if c in df.columns]
+    subset_cols = [c for c in ["accuracy", "f1_score"] if c in disp_cols]
     if subset_cols and not df.empty:
         st.dataframe(df[disp_cols].style.highlight_max(subset=subset_cols, color="#dcfce7"), use_container_width=True)
     else:
