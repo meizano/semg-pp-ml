@@ -124,7 +124,7 @@ def _run_model_with_prepped_data(
             X_te_2d = X_te.reshape(X_te.shape[0], -1)
             y_prob = model.predict_proba(X_te_2d)
         else:
-            y_prob = model.predict(X_te, batch_size=config.training.batch_size, verbose=0)
+            y_prob = model.predict_proba(X_te)
         t_inf = time.perf_counter() - t0_inf
         latency_ms = (t_inf / len(X_te)) * 1000.0
 

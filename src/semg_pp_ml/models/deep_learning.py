@@ -155,10 +155,17 @@ class PyTorchModelWrapper:
             for (batch_X,) in loader:
                 batch_X = batch_X.to(self.device)
                 outputs = self.net(batch_X)
+                if outputs.ndim == 1:
+                    outputs = outputs.unsqueeze(0)
                 probs = softmax(outputs)
+                if probs.ndim == 1:
+                    probs = probs.unsqueeze(0)
                 probs_list.append(probs.cpu().numpy())
 
-        return np.vstack(probs_list)
+        res = np.vstack(probs_list)
+        if res.ndim == 1:
+            res = res.reshape(1, -1)
+        return res
 
     def predict(self, X: np.ndarray, batch_size: int = 32, verbose: int = 0) -> np.ndarray:
         probs = self.predict_proba(X, batch_size, verbose)

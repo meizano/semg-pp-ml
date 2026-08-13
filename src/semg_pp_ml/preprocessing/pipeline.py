@@ -264,6 +264,12 @@ class PreprocessingPipeline:
                         eval_path, self.config.dataset.subjects, self.config.dataset.channels
                     )
 
+        _, labels_raw, glove_raw = load_mat_files_from_folder(
+            self.config.dataset.train_dir,
+            self.config.dataset.subjects,
+            self.config.dataset.channels
+        )
+
         # Windowing
         X_train, y_train, glove_train = sliding_window(
             result.emg_scaled, labels_raw,
@@ -288,16 +294,15 @@ class PreprocessingPipeline:
 
         # Label encoding
         from sklearn.preprocessing import LabelEncoder
-        from tensorflow.keras.utils import to_categorical
 
         le = LabelEncoder()
         y_train_enc = le.fit_transform(y_train)
         n_classes = len(np.unique(y_train_enc))
-        y_train_cat = to_categorical(y_train_enc, n_classes)
+        y_train_cat = np.eye(n_classes)[y_train_enc]
 
         if X_eval.size > 0:
             y_eval_enc = le.transform(y_eval)
-            y_eval_cat = to_categorical(y_eval_enc, n_classes)
+            y_eval_cat = np.eye(n_classes)[y_eval_enc]
             X_tr, y_tr = X_train, y_train_cat
             X_te, y_te = X_eval, y_eval_cat
             glove_tr, glove_te = glove_train, glove_eval

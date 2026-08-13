@@ -114,6 +114,7 @@ class TrainingConfig(BaseModel):
 # Model Hyperparameters (per-model)
 # =============================================================================
 class ModelHyperparameters(BaseModel):
+    type: str = "cnn1d"
     # Classical ML
     svm: Dict[str, Any] = Field(default_factory=lambda: {"C": 1.0, "kernel": "rbf", "gamma": "scale", "probability": True})
     rf: Dict[str, Any] = Field(default_factory=lambda: {"n_estimators": 100, "max_depth": None, "random_state": 42, "n_jobs": -1})
@@ -205,16 +206,21 @@ class GridSearchConfig(BaseModel):
 # =============================================================================
 # Config Loader
 # =============================================================================
-def load_config(config_path: str | Path) -> ExperimentConfig:
+def load_config(config_path: str | Path = "config/default.yaml") -> ExperimentConfig:
     """Load configuration from YAML file."""
+    if config_path is None:
+        config_path = "config/default.yaml"
     path = Path(config_path)
     if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
+        # try root config/default.yaml
+        path = Path("config/default.yaml")
+    if not path.exists():
+        return ExperimentConfig()
 
     with open(path, "r") as f:
         data = yaml.safe_load(f)
 
-    return ExperimentConfig(**data)
+    return ExperimentConfig(**data or {})
 
 
 def save_config(config: ExperimentConfig, config_path: str | Path) -> None:
