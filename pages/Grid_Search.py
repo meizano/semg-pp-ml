@@ -104,6 +104,15 @@ if run_btn or "grid_results_cache" in st.session_state:
     else:
         st.dataframe(df[disp_cols], use_container_width=True)
 
+    # Error Diagnostic Report if any runs failed
+    if "status" in df.columns and (df["status"] == "FAILED").any():
+        st.subheader("⚠️ Error Diagnostic Report")
+        st.caption("Inspect the errors encountered during grid search runs:")
+        failed_df = df[df["status"] == "FAILED"]
+        for idx, row in failed_df.iterrows():
+            with st.expander(f"❌ Failed: Preprocessing = {row.get('prep')} | Model = {row.get('model')}"):
+                st.error(f"Error Message: {row.get('error', 'Unknown error')}")
+
     # Visualization
     if "accuracy" in df.columns and not df.empty:
         st.subheader("Comparative Performance")
