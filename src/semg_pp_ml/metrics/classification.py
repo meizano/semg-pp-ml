@@ -84,7 +84,11 @@ def compute_confusion_matrix_detail(y_true: np.ndarray, y_pred: np.ndarray, n_cl
 
 def compute_classification_report(y_true: np.ndarray, y_pred: np.ndarray, target_names: Optional[list] = None) -> Dict[str, Any]:
     """Compute full classification report as dict."""
-    return classification_report(y_true, y_pred, target_names=target_names, output_dict=True, zero_division=0)
+    unique_labels = np.unique(np.concatenate([y_true, y_pred]))
+    names = target_names
+    if target_names and len(target_names) != len(unique_labels):
+        names = [target_names[i] for i in unique_labels if i < len(target_names)]
+    return classification_report(y_true, y_pred, labels=unique_labels, target_names=names, output_dict=True, zero_division=0)
 
 
 def compute_all_classification_metrics(

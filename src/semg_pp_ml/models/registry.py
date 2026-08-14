@@ -203,5 +203,9 @@ def merge_hyperparameters(model_type: str, user_params: Dict[str, Any]) -> Dict[
     """Merge user hyperparameters with defaults."""
     defaults = get_default_hyperparameters(model_type)
     merged = defaults.copy()
-    merged.update(user_params)
+    if model_type in user_params and isinstance(user_params[model_type], dict):
+        merged.update(user_params[model_type])
+    else:
+        merged.update(user_params)
+    merged.pop('type', None)
     return merged
