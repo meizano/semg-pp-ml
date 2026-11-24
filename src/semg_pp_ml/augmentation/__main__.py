@@ -18,7 +18,7 @@ from .transforms import TRANSFORMS
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(prog="semg augment", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", required=True, help="output .npz path")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--synthetic", action="store_true", help="generate artificial data instead of augmenting")

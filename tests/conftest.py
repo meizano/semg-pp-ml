@@ -1,4 +1,6 @@
 """Shared fixtures: a small NinaPro-style dataset written to disk as .mat files."""
+import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -6,6 +8,9 @@ import pytest
 import scipy.io as sio
 
 from semg_pp_ml.augmentation import SyntheticConfig, generate_synthetic_semg
+
+# Keep the API's test database out of the project folder.
+os.environ.setdefault("DATABASE_URL", "sqlite:///" + tempfile.mkdtemp(prefix="semg_test_").replace(os.sep, "/") + "/api_test.db")
 
 
 def write_fake_ninapro(folder: Path, subjects=(1, 2), per_class: int = 30, seed: int = 0) -> Path:

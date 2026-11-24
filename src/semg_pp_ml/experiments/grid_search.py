@@ -149,8 +149,15 @@ def run_grid_search_cli(
         config, grid_config, skip_visualization=skip_viz, parallel=parallel, max_workers=workers
     )
 
+    out = save_grid_json(result, config.output_dir)
+    print(f"\n[OK] Grid search complete. Results in {out.parent}")
+    return result
+
+
+def save_grid_json(result: GridSearchResult, output_dir: Path) -> Path:
+    """Write grid_search_results.json: totals, settings and the best run per metric."""
     import json
-    out = Path(config.output_dir) / "grid_search_results.json"
+    out = Path(output_dir) / "grid_search_results.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         json.dump({
@@ -161,5 +168,4 @@ def run_grid_search_cli(
                 for k, v in result.best_by_metric.items()
             },
         }, f, indent=2, default=str)
-    print(f"\n[OK] Grid search complete. Results in {out.parent}")
-    return result
+    return out

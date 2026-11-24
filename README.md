@@ -11,6 +11,19 @@ and TinyML export, with a CLI, a Streamlit app and an optional REST API.
 
 ---
 
+## Documentation
+
+Full guides are in [`docs/`](docs/README.md):
+
+- [Getting started](docs/getting-started.md): install and run your first experiment
+- [How it works](docs/how-it-works.md): the pipeline explained
+- [CLI reference](docs/cli.md) and [Configuration](docs/configuration.md)
+- [Data](docs/data.md), [Models](docs/models.md), [Grid search](docs/grid-search.md), [Results](docs/outputs.md)
+- [Augmentation](docs/augmentation.md), [Web app](docs/web-app.md), [REST API](docs/api.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+---
+
 ## 1. Install
 
 Requires Python 3.10+.

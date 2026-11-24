@@ -98,6 +98,8 @@ def cmd_grid(args: argparse.Namespace) -> int:
         config, grid, skip_visualization=args.no_viz,
         parallel=args.parallel, max_workers=args.workers,
     )
+    from .experiments.grid_search import save_grid_json
+    save_grid_json(result, config.output_dir)
     failed = sum(r.status != "OK" for r in result.results)
     print(f"\n{len(result.results) - failed} OK, {failed} failed, {result.total_time:.1f}s")
     return 1 if result.results and failed == len(result.results) else 0
@@ -162,6 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["augment"]:
+        # Hand everything after `augment` to its own parser. argparse's REMAINDER cannot
+        # reliably collect options such as --synthetic, so this path bypasses it.
+        from .augmentation.__main__ import main as augment_main
+        augment_main(argv[1:])
+        return 0
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

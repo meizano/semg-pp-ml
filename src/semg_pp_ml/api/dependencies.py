@@ -3,6 +3,8 @@ API dependencies for database, authentication, and services.
 """
 from __future__ import annotations
 
+import os
+
 from typing import Generator, Optional
 from fastapi import Depends, HTTPException, status, WebSocket, Query
 from fastapi.security import OAuth2PasswordBearer
@@ -11,13 +13,13 @@ from jose import jwt, JWTError
 from datetime import datetime, timedelta
 
 from ..config import ExperimentConfig
-from ..utils.system import get_system_info
 from .schemas import TokenData
-from .models.db import User, UserRole, get_db as get_db_session
+from .models.db import User, UserRole, SessionLocal
 
 
 # JWT Configuration
-SECRET_KEY = "your-secret-key-change-in-production"  # Should be from env
+# Set SEMG_SECRET_KEY in the environment for any real deployment.
+SECRET_KEY = os.getenv("SEMG_SECRET_KEY", "dev-only-insecure-key-set-SEMG_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -25,8 +27,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Database session dependency."""
-    db = get_db_session()
+    """Database session dependency (one session per request)."""
+    db = SessionLocal()
     try:
         yield db
     finally:

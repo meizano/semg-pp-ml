@@ -7,17 +7,14 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
 
-from .dependencies import get_db, get_current_user
+from .dependencies import get_current_user
 from .routes import auth, preprocessing, models, experiments, artifacts, websocket
-from .services.websocket_manager import manager
+from .models.db import init_db
 from ..config import ExperimentConfig, load_config
 from ..utils.system import get_system_info, print_system_info
 
@@ -39,6 +36,9 @@ async def lifespan(app: FastAPI):
     # Print system info
     sys_info = get_system_info()
     print_system_info(sys_info)
+
+    # Create database tables on first start (no-op when they exist)
+    init_db()
 
     # Load default config
     config_path = Path(os.getenv("CONFIG_PATH", "config/default.yaml"))
