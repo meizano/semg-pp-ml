@@ -118,5 +118,27 @@ Open a notebook in Google Colab and run:
 
 ---
 
+## 🧪 Data Augmentation & Artificial sEMG Data
+
+`src/semg_pp_ml/augmentation/` (numpy/scipy only) provides:
+
+- **Label-preserving augmentations** for `(n_windows, n_samples, n_channels)` arrays: Gaussian noise at a target SNR, amplitude scaling, time warping, electrode shift, cross-talk, channel dropout, baseline wander, mains hum, and same-class mixup.
+- **A physiology-inspired synthetic generator**: motor-unit pool with size-principle recruitment, biphasic MUAP templates, and class-specific spatial patterns. Higher force classes produce larger RMS (covered by tests).
+
+```bash
+# Generate 200 artificial windows per class for 6 gesture classes
+python -m semg_pp_ml.augmentation --synthetic --n-classes 6 --per-class 200 --out artificial.npz
+
+# Augment an existing dataset (X, y) with two augmented copies per window
+python -m semg_pp_ml.augmentation --input windows.npz --copies 2 --out augmented.npz
+
+# Run tests
+pytest tests/test_augmentation.py
+```
+
+The synthetic model is not biophysically validated. Check its output against real recordings before relying on it. A survey of related repositories and what to take from each is in [`docs/related_work.md`](docs/related_work.md).
+
+---
+
 ## 📄 License
 This project is open-source under the [MIT License](LICENSE).
