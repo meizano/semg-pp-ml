@@ -4,19 +4,18 @@ Handles filtering, scaling, caching, and metrics computation.
 """
 from __future__ import annotations
 
-import os
 import hashlib
 import json
 import numpy as np
 from pathlib import Path
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any, List
 import joblib
 
-from ..config import ExperimentConfig, PreprocessingConfig
-from .filters import apply_preprocessing, FILTER_REGISTRY
+from ..config import ExperimentConfig, load_config
+from .filters import apply_preprocessing
 from .metrics import compute_all_preprocessing_metrics
-from ..data.loader import load_mat_files_from_folder, sliding_window, prepare_dataset
+from ..data.loader import load_mat_files_from_folder, sliding_window
 
 
 @dataclass
@@ -44,8 +43,18 @@ class PreprocessingPipeline:
 
     def __init__(self, config: ExperimentConfig, cache_dir: Optional[Path] = None):
         self.config = config
-        self.cache_dir = cache_dir or (config.output_dir / "preprocessing_cache")
+        self.cache_dir = cache_dir or (Path(config.output_dir) / "preprocessing_cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._raw_cache: Dict[str, Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]] = {}
+
+    def _load_raw(self, folder: Path) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        """Load a split's .mat files once per pipeline instance (run() and prepare() both need them)."""
+        key = str(Path(folder).resolve())
+        if key not in self._raw_cache:
+            self._raw_cache[key] = load_mat_files_from_folder(
+                folder, self.config.dataset.subjects, self.config.dataset.channels
+            )
+        return self._raw_cache[key]
 
     def _compute_config_hash(self, method: str) -> str:
         """Compute hash of preprocessing configuration for caching."""
@@ -168,11 +177,7 @@ class PreprocessingPipeline:
         print(f"[PIPELINE] Running preprocessing: {method}")
 
         # Load raw data
-        emg_raw, labels_raw, glove_raw = load_mat_files_from_folder(
-            self.config.dataset.train_dir,
-            self.config.dataset.subjects,
-            self.config.dataset.channels
-        )
+        emg_raw, labels_raw, glove_raw = self._load_raw(self.config.dataset.train_path)
 
         # Apply filtering
         emg_filtered = apply_preprocessing(
@@ -254,21 +259,15 @@ class PreprocessingPipeline:
         labels_eval_raw = np.array([])
         glove_eval_raw = None
 
-        if eval_dir or self.config.dataset.eval_dir:
-            eval_path = Path(eval_dir or self.config.dataset.eval_dir)
-            if eval_path.exists():
-                eval_files = list(eval_path.glob("*.mat"))
-                if eval_files:
-                    has_eval = True
-                    emg_eval_raw, labels_eval_raw, glove_eval_raw = load_mat_files_from_folder(
-                        eval_path, self.config.dataset.subjects, self.config.dataset.channels
-                    )
+        eval_path = self.config.dataset.resolve_dir(eval_dir) if eval_dir else self.config.dataset.eval_path
+        if eval_path.is_dir() and any(eval_path.glob("*.mat")):
+            try:
+                emg_eval_raw, labels_eval_raw, glove_eval_raw = self._load_raw(eval_path)
+                has_eval = True
+            except FileNotFoundError as e:
+                print(f"[WARN] {e} -- using a stratified train/test split instead.")
 
-        _, labels_raw, glove_raw = load_mat_files_from_folder(
-            self.config.dataset.train_dir,
-            self.config.dataset.subjects,
-            self.config.dataset.channels
-        )
+        _, labels_raw, glove_raw = self._load_raw(self.config.dataset.train_path)
 
         # Windowing
         X_train, y_train, glove_train = sliding_window(

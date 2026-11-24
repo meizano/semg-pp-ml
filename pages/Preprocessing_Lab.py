@@ -31,7 +31,7 @@ st.caption("Configure granular filtering parameters, evaluate SNR / PSD / RMSE m
 # -----------------------------------------------------------------------------
 st.sidebar.header("Dataset & Signal Settings")
 
-data_dir = st.sidebar.text_input("Train Data Folder", r"data\ninapro_db8")
+data_dir = st.sidebar.text_input("Train Data Folder", "data/ninapro_db8")
 subjects = st.sidebar.multiselect("Subjects", list(range(1, 11)), default=[1])
 channels = st.sidebar.multiselect("Channels (0-indexed)", list(range(16)), default=[3, 4, 5, 11, 12, 13])
 fs = st.sidebar.number_input("Sampling Frequency (Hz)", value=2000, min_value=100, max_value=10000, step=100)

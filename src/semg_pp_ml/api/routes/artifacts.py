@@ -42,7 +42,7 @@ def list_artifacts(
                 type=a.type,
                 size_bytes=a.size_bytes,
                 mime_type=a.mime_type,
-                metadata=a.metadata,
+                metadata=a.meta,
                 created_at=a.created_at,
                 download_url=f"/api/v1/artifacts/{a.id}/download"
             )
@@ -72,7 +72,7 @@ def get_artifact(
         type=artifact.type,
         size_bytes=artifact.size_bytes,
         mime_type=artifact.mime_type,
-        metadata=artifact.metadata,
+        metadata=artifact.meta,
         created_at=artifact.created_at,
         download_url=f"/api/v1/artifacts/{artifact.id}/download"
     )

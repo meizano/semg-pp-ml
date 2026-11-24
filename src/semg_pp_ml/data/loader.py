@@ -11,6 +11,14 @@ from typing import Optional, Tuple, List
 from pathlib import Path
 
 
+def one_hot(y: np.ndarray, n_classes: int) -> np.ndarray:
+    """Integer labels -> one-hot matrix (replaces the TensorFlow ``to_categorical``)."""
+    y = np.asarray(y, dtype=np.int64).reshape(-1)
+    out = np.zeros((y.shape[0], n_classes), dtype=np.float32)
+    out[np.arange(y.shape[0]), y] = 1.0
+    return out
+
+
 def load_mat_files_from_folder(
     folder_path: str | Path,
     subjects: List[int],
@@ -29,16 +37,11 @@ def load_mat_files_from_folder(
     all_labels = []
     all_glove = []
 
-    if not folder_path.exists():
-        print(f"[INFO] Folder not found: {folder_path}. Generating synthetic sEMG dataset for testing/demo...")
-        n_samples = 15000
-        n_channels = 6
-        emg_full = np.random.randn(n_samples, n_channels).astype(np.float32)
-        t = np.linspace(0, 75, n_samples)
-        for c in range(n_channels):
-            emg_full[:, c] += np.sin(2 * np.pi * (c + 1) * t) * np.random.uniform(0.5, 2.0, n_samples)
-        labels_full = np.random.randint(0, 6, size=n_samples).astype(np.int64)
-        return emg_full, labels_full, None
+    if not folder_path.is_dir():
+        raise FileNotFoundError(
+            f"Dataset folder not found: {folder_path}. Set dataset.root / dataset.train_dir "
+            f"in the config, or pass --data-dir."
+        )
 
     for subj in subjects:
         pattern = folder_path / f"S{subj}_*.mat"
@@ -92,15 +95,9 @@ def load_mat_files_from_folder(
                 all_glove.append(None)
 
     if not all_emg:
-        print(f"[INFO] Dataset folder not found or empty. Generating synthetic sEMG dataset for testing/demo...")
-        n_samples = 15000
-        n_channels = 6
-        emg_full = np.random.randn(n_samples, n_channels).astype(np.float32)
-        t = np.linspace(0, 75, n_samples)
-        for c in range(n_channels):
-            emg_full[:, c] += np.sin(2 * np.pi * (c + 1) * t) * np.random.uniform(0.5, 2.0, n_samples)
-        labels_full = np.random.randint(0, 6, size=n_samples).astype(np.int64)
-        return emg_full, labels_full, None
+        raise FileNotFoundError(
+            f"No usable S<subject>_*.mat files for subjects {list(subjects)} in {folder_path}"
+        )
 
     emg_full = np.vstack(all_emg)
     labels_full = np.concatenate(all_labels)
@@ -114,7 +111,7 @@ def load_mat_files_from_folder(
             else:
                 print(f"[WARN] CyberGlove shape inconsistent: {set(shapes)}. Skipping glove.")
         else:
-            print(f"[INFO] Some files missing CyberGlove. Skipping glove.")
+            print("[INFO] Some files missing CyberGlove. Skipping glove.")
 
     print(f"[OK] Loaded: {emg_full.shape[0]} samples x {emg_full.shape[1]} ch | Glove: {'Yes (' + str(glove_full.shape[1]) + ' DoF)' if glove_full is not None else 'No'}")
     return emg_full, labels_full, glove_full
@@ -150,35 +147,44 @@ def sliding_window(
     if step <= 0:
         raise ValueError(f"OVERLAP ({overlap}) must be less than WINDOW_SIZE ({window_size})")
 
+    emg = np.asarray(emg)
+    labels = np.asarray(labels)
     n = emg.shape[0]
-    X, y = [], []
-    Y_glove = [] if glove is not None else None
+    n_win = (n - window_size) // step + 1 if n >= window_size else 0
+    if n_win == 0:
+        empty_glove = None if glove is None else np.empty((0, glove.shape[1]))
+        return (np.empty((0, window_size, emg.shape[1]), dtype=emg.dtype),
+                np.empty((0,), dtype=np.int64), empty_glove)
 
-    for start in range(0, n - window_size + 1, step):
-        end = start + window_size
-        wlab = labels[start:end]
+    # Windows are processed in chunks so the index matrix stays small even when the
+    # overlap is large (many windows). Each chunk is vectorised; there is no per-window loop.
+    offsets = np.arange(window_size)[None, :]
+    chunk = max(1, 2_000_000 // window_size)     # ~16 MB of indices per chunk
+    X_parts, y_parts, g_parts = [], [], []
+    for first in range(0, n_win, chunk):
+        starts = np.arange(first, min(first + chunk, n_win)) * step
+        idx = starts[:, None] + offsets                       # (k, window_size)
+        win_labels = labels[idx]
 
-        unique, counts = np.unique(wlab, return_counts=True)
-        majority_label = int(unique[np.argmax(counts)])
-        purity = counts.max() / window_size
+        # Majority label per window. Counting per distinct value (few classes) and taking
+        # argmax picks the smallest label on ties, matching the previous np.unique logic.
+        values = np.unique(win_labels)
+        counts = np.stack([(win_labels == v).sum(axis=1) for v in values], axis=1)
+        majority = values[np.argmax(counts, axis=1)].astype(np.int64)
+        purity = counts.max(axis=1) / window_size
 
-        if majority_label not in selected_classes:
-            continue
-        if purity < purity_threshold:
-            continue
-
-        X.append(emg[start:end, :])
-        y.append(majority_label)
-
+        keep = np.isin(majority, list(selected_classes)) & (purity >= purity_threshold)
+        kept = idx[keep]
+        X_parts.append(emg[kept])                             # (m, window_size, n_channels)
+        y_parts.append(majority[keep])
         if glove is not None:
-            Y_glove.append(np.mean(glove[start:end, :], axis=0))
+            g_parts.append(glove[kept].mean(axis=1))
 
-    X_arr = np.array(X)
-    y_arr = np.array(y)
-
-    if Y_glove is not None:
-        return X_arr, y_arr, np.array(Y_glove)
-    return X_arr, y_arr, None
+    X_arr = np.concatenate(X_parts) if X_parts else np.empty((0, window_size, emg.shape[1]), emg.dtype)
+    y_arr = np.concatenate(y_parts) if y_parts else np.empty((0,), dtype=np.int64)
+    Y_glove = (np.concatenate(g_parts) if g_parts else np.empty((0, glove.shape[1]))) \
+        if glove is not None else None
+    return X_arr, y_arr, Y_glove
 
 
 def train_test_split_stratified(
@@ -227,7 +233,6 @@ def prepare_dataset(
         X_tr, y_tr, X_te, y_te, glove_tr, glove_te, le, n_classes
     """
     from sklearn.preprocessing import LabelEncoder
-    from tensorflow.keras.utils import to_categorical
 
     # Load training data
     emg_train, labels_train, glove_train = load_mat_files_from_folder(
@@ -265,11 +270,11 @@ def prepare_dataset(
 
     if X_eval.size > 0:
         y_eval_enc = le.transform(y_eval)
-        X_tr, y_tr = X_train, to_categorical(y_train_enc, n_classes)
-        X_te, y_te = X_eval, to_categorical(y_eval_enc, n_classes)
+        X_tr, y_tr = X_train, one_hot(y_train_enc, n_classes)
+        X_te, y_te = X_eval, one_hot(y_eval_enc, n_classes)
         glove_tr, glove_te = glove_train_win, glove_eval_win
     else:
-        y_train_cat = to_categorical(y_train_enc, n_classes)
+        y_train_cat = one_hot(y_train_enc, n_classes)
         X_tr, X_te, y_tr, y_te, glove_tr, glove_te = train_test_split_stratified(
             X_train, y_train_cat, test_size, random_state, glove_train_win
         )

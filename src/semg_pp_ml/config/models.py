@@ -5,18 +5,27 @@ Uses Pydantic v2 for validation and YAML for file-based config.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Dict, Any, List, Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Dict, Any, List, get_origin
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import yaml
+
+
+class _Base(BaseModel):
+    """Shared settings: validate on assignment and reject unknown keys (catches YAML typos)."""
+
+    model_config = ConfigDict(validate_assignment=True, validate_default=True, extra="forbid")
 
 
 # =============================================================================
 # Dataset Configuration
 # =============================================================================
-class DatasetConfig(BaseModel):
-    root: Path = Path("../ninapro/DB8")
-    train_dir: str = "train"
-    eval_dir: str = "evaluation"
+DEFAULT_DATA_ROOT = Path("data/ninapro_db8")
+
+
+class DatasetConfig(_Base):
+    root: Path = DEFAULT_DATA_ROOT
+    train_dir: str = "train"        # relative to root, or an absolute path
+    eval_dir: str = "evaluation"    # optional; used only if it contains .mat files
     subjects: List[int] = Field(default_factory=lambda: list(range(1, 11)))
     channels: List[int] = [3, 4, 5, 11, 12, 13]
     n_channels: int = 6
@@ -28,11 +37,30 @@ class DatasetConfig(BaseModel):
     def expand_path(cls, v: str | Path) -> Path:
         return Path(v).expanduser().resolve()
 
+    def resolve_dir(self, subdir: str | Path) -> Path:
+        """Absolute paths are used as-is; relative paths are taken under ``root``."""
+        p = Path(subdir).expanduser()
+        return p if p.is_absolute() else (self.root / p)
+
+    @property
+    def train_path(self) -> Path:
+        """``root/train_dir``. If that subfolder is missing but ``root`` itself holds
+        NinaPro ``S*.mat`` files, ``root`` is used, so pointing ``--data-dir`` at the
+        folder with the files just works."""
+        path = self.resolve_dir(self.train_dir)
+        if not path.is_dir() and self.root.is_dir() and any(self.root.glob("S*.mat")):
+            return self.root
+        return path
+
+    @property
+    def eval_path(self) -> Path:
+        return self.resolve_dir(self.eval_dir)
+
 
 # =============================================================================
 # Signal Configuration
 # =============================================================================
-class SignalConfig(BaseModel):
+class SignalConfig(_Base):
     fs: int = 2000
     window_size: int = 400
     overlap: int = 100
@@ -45,18 +73,18 @@ class SignalConfig(BaseModel):
 # =============================================================================
 # Preprocessing Method Configurations
 # =============================================================================
-class ButterworthConfig(BaseModel):
+class ButterworthConfig(_Base):
     order: int = 4
     low_hz: float = 10.0
     high_hz: float = 400.0
 
 
-class KalmanConfig(BaseModel):
+class KalmanConfig(_Base):
     q: float = 1e-5
     r: float = 0.05
 
 
-class VMDConfig(BaseModel):
+class VMDConfig(_Base):
     alpha: int = 2000
     k: int = 3
     tau: int = 0
@@ -65,13 +93,13 @@ class VMDConfig(BaseModel):
     tol: float = 1e-7
 
 
-class WaveletConfig(BaseModel):
+class WaveletConfig(_Base):
     wavelet: str = "db4"
     level: int = 4
     threshold_mode: Literal["soft", "hard"] = "soft"
 
 
-class NotchConfig(BaseModel):
+class NotchConfig(_Base):
     freq: float = 50.0
     quality_factor: float = 30.0
 
@@ -87,7 +115,7 @@ PreprocessingMethod = Literal[
 ]
 
 
-class PreprocessingConfig(BaseModel):
+class PreprocessingConfig(_Base):
     method: PreprocessingMethod = "butterworth_kalman"
     butterworth: ButterworthConfig = Field(default_factory=ButterworthConfig)
     kalman: KalmanConfig = Field(default_factory=KalmanConfig)
@@ -99,7 +127,7 @@ class PreprocessingConfig(BaseModel):
 # =============================================================================
 # Training Configuration
 # =============================================================================
-class TrainingConfig(BaseModel):
+class TrainingConfig(_Base):
     epochs: int = 100
     batch_size: int = 64
     lr: float = 0.001
@@ -113,7 +141,7 @@ class TrainingConfig(BaseModel):
 # =============================================================================
 # Model Hyperparameters (per-model)
 # =============================================================================
-class ModelHyperparameters(BaseModel):
+class ModelHyperparameters(_Base):
     type: str = "cnn1d"
     # Classical ML
     svm: Dict[str, Any] = Field(default_factory=lambda: {"C": 1.0, "kernel": "rbf", "gamma": "scale", "probability": True})
@@ -162,7 +190,7 @@ class ModelHyperparameters(BaseModel):
 # =============================================================================
 # Experiment Configuration
 # =============================================================================
-class ExperimentConfig(BaseModel):
+class ExperimentConfig(_Base):
     name: str = "default"
     description: str = ""
     tags: Dict[str, str] = Field(default_factory=dict)
@@ -185,7 +213,7 @@ class ExperimentConfig(BaseModel):
 # =============================================================================
 # Grid Search Configuration
 # =============================================================================
-class GridSearchConfig(BaseModel):
+class GridSearchConfig(_Base):
     preps: List[PreprocessingMethod] = Field(default_factory=lambda: [
         "raw", "butterworth", "kalman", "butterworth_kalman", "vmd"
     ])
@@ -206,21 +234,83 @@ class GridSearchConfig(BaseModel):
 # =============================================================================
 # Config Loader
 # =============================================================================
-def load_config(config_path: str | Path = "config/default.yaml") -> ExperimentConfig:
-    """Load configuration from YAML file."""
-    if config_path is None:
-        config_path = "config/default.yaml"
+DEFAULT_CONFIG_PATH = Path("config/default.yaml")
+
+
+def _read_yaml(path: Path) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: top level of a config file must be a mapping")
+    return data
+
+
+def load_config(config_path: str | Path | None = None) -> ExperimentConfig:
+    """Load an experiment config from YAML.
+
+    With no path, ``config/default.yaml`` (relative to the working directory) is used
+    if it exists; otherwise the built-in defaults are returned.
+    """
+    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    if not path.exists():
+        if config_path:
+            raise FileNotFoundError(f"config file not found: {path}")
+        return ExperimentConfig()
+    return ExperimentConfig(**_read_yaml(path))
+
+
+def load_grid_config(config_path: str | Path | None = None) -> GridSearchConfig:
+    """Load a grid-search config (preps/models/exclude_pairs). Defaults if no path is given."""
+    if not config_path:
+        return GridSearchConfig()
     path = Path(config_path)
     if not path.exists():
-        # try root config/default.yaml
-        path = Path("config/default.yaml")
-    if not path.exists():
-        return ExperimentConfig()
+        raise FileNotFoundError(f"grid config file not found: {path}")
+    return GridSearchConfig(**_read_yaml(path))
 
-    with open(path, "r") as f:
-        data = yaml.safe_load(f)
 
-    return ExperimentConfig(**data or {})
+def apply_overrides(config: ExperimentConfig, overrides: List[str]) -> ExperimentConfig:
+    """Return a copy of ``config`` with ``dotted.key=value`` overrides applied.
+
+    Values are parsed as YAML, so ``1e-3``, ``[1, 2]``, ``true`` and ``null`` work.
+    Unknown keys raise ``KeyError`` instead of being silently ignored.
+
+        apply_overrides(cfg, ["training.epochs=5", "preprocessing.method=vmd"])
+    """
+    data = config.model_dump(mode="python")
+    for item in overrides:
+        key, sep, raw = item.partition("=")
+        if not sep or not key.strip():
+            raise ValueError(f"override must look like key.path=value, got {item!r}")
+        parts = key.strip().split(".")
+        node = data
+        for part in parts[:-1]:
+            if not isinstance(node.get(part), dict):
+                raise KeyError(f"unknown config section {part!r} in override {key!r}")
+            node = node[part]
+        if parts[-1] not in node and not _inside_free_dict(parts[:-1]):
+            raise KeyError(f"unknown config key {key!r}")
+        node[parts[-1]] = yaml.safe_load(raw)
+    return ExperimentConfig(**data)
+
+
+def _inside_free_dict(parent: List[str]) -> bool:
+    """True when the path ``parent`` ends inside a free-form Dict field (e.g. ``model.svm``, ``tags``)."""
+    cls: type = ExperimentConfig
+    for part in parent:
+        field = cls.model_fields.get(part)
+        if field is None:
+            return False
+        ann = field.annotation
+        if get_origin(ann) is dict:
+            return True
+        if isinstance(ann, type) and issubclass(ann, BaseModel):
+            cls = ann
+            continue
+        return False
+    return False
 
 
 def save_config(config: ExperimentConfig, config_path: str | Path) -> None:

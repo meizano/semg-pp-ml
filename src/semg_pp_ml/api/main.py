@@ -15,11 +15,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from .api.dependencies import get_db, get_current_user
-from .api.routes import auth, preprocessing, models, experiments, artifacts, websocket
-from .api.services.websocket_manager import manager
-from .config import ExperimentConfig, load_config
-from .utils.system import get_system_info, print_system_info
+from .dependencies import get_db, get_current_user
+from .routes import auth, preprocessing, models, experiments, artifacts, websocket
+from .services.websocket_manager import manager
+from ..config import ExperimentConfig, load_config
+from ..utils.system import get_system_info, print_system_info
 
 # Configure logging
 logging.basicConfig(

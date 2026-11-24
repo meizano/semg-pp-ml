@@ -113,12 +113,14 @@ class Artifact(Base):
     storage_path = Column(String(512), nullable=False)  # MinIO path or local path
     size_bytes = Column(Integer)
     mime_type = Column(String(100))
-    metadata = Column(JSON, nullable=True)
+    meta = Column("metadata", JSON, nullable=True)  # attribute renamed: "metadata" is reserved by SQLAlchemy
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://semg:semgpass@localhost:5432/semg_ml")
+# Local SQLite by default so the API runs without a server. For PostgreSQL set e.g.
+# DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/semg_ml (needs psycopg).
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./semg_api.db")
 
 engine = create_engine(DATABASE_URL, poolclass=NullPool)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

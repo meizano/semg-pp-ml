@@ -110,7 +110,7 @@ async def run_preprocessing_job(
             storage_path=str(data_path),
             size_bytes=os.path.getsize(data_path),
             mime_type="application/octet-stream",
-            metadata={
+            meta={
                 "config_hash": result.config_hash,
                 "method": result.method,
                 "channels": result.channels,
@@ -291,14 +291,14 @@ def get_preprocessing_result(
         metrics = json.load(f)
     
     # Extract config hash from filename
-    config_hash = artifact.metadata.get("config_hash", "")
+    config_hash = artifact.meta.get("config_hash", "")
     
     return PreprocessingResult(
         job_id=job.id,
         method=job.config.get("config", {}).get("preprocessing", {}).get("method", "unknown"),
         config_hash=config_hash,
-        channels=artifact.metadata.get("channels", []),
-        subjects=artifact.metadata.get("subjects", []),
+        channels=artifact.meta.get("channels", []),
+        subjects=artifact.meta.get("subjects", []),
         metrics=metrics,
         data_path=artifact.storage_path,
         scaler_path=artifact.storage_path.replace(".npz", "_scaler.pkl"),

@@ -1,31 +1,31 @@
 """
 Single experiment runner for sEMG classification.
+
+Two entry points share one training/evaluation path:
+
+- ``run_single_experiment``: preprocess + train + evaluate one (preprocessing, model) pair.
+- ``train_and_evaluate``: train + evaluate one model on already-prepared data. The grid
+  search calls this so each preprocessing method is computed only once.
 """
 from __future__ import annotations
 
-import time
 import json
-import numpy as np
+import time
+import traceback
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, Optional
 
+import numpy as np
 
-
-from ..config import ExperimentConfig, load_config
-from ..data.loader import prepare_dataset
-from ..preprocessing.pipeline import PreprocessingPipeline
-from ..models.registry import (
-    build_model, is_classical_model, count_params, save_model,
-    merge_hyperparameters, get_default_hyperparameters
-)
+from ..config import ExperimentConfig
 from ..metrics.classification import compute_all_classification_metrics
-from ..visualization.training import plot_training_curves, analyze_overfitting
+from ..models.registry import (
+    build_model, count_params, is_classical_model, merge_hyperparameters, save_model,
+)
+from ..preprocessing.pipeline import PreprocessingPipeline
 from ..visualization.confusion import plot_confusion_matrix
-from ..utils.timer import Timer
-
-
-
+from ..visualization.training import plot_training_curves
 
 
 @dataclass
@@ -45,6 +45,135 @@ class ExperimentResult:
     status: str = "OK"
     error: Optional[str] = None
 
+    @classmethod
+    def failed(cls, config: ExperimentConfig, model_type: str, prep_method: str, error: str) -> "ExperimentResult":
+        return cls(
+            model_type=model_type, prep_method=prep_method,
+            config=config.model_dump(mode="json"), metrics={},
+            training_time=0.0, inference_time=0.0, epochs_run=0,
+            n_params=0, trainable_params=0, status="FAILED", error=error,
+        )
+
+
+def prepare_dataset_for_prep(config: ExperimentConfig, prep_method: str) -> Dict[str, Any]:
+    """Run preprocessing and windowing once for ``prep_method`` (uses the on-disk cache)."""
+    config = config.model_copy(deep=True)
+    config.preprocessing.method = prep_method
+    return PreprocessingPipeline(config).prepare_for_training(method=prep_method)
+
+
+def train_and_evaluate(
+    config: ExperimentConfig,
+    prep_data: Dict[str, Any],
+    model_type: str,
+    *,
+    save_model_flag: bool = True,
+    skip_visualization: bool = False,
+    output_dir: Optional[Path] = None,
+    verbose: int = 1,
+) -> ExperimentResult:
+    """Train ``model_type`` on prepared data and evaluate it on the test split.
+
+    Never raises for model/training errors: they are returned as ``status="FAILED"``
+    so one bad model does not stop a grid search.
+    """
+    prep_method = prep_data["method"]
+    output_dir = Path(output_dir or config.output_dir)
+    try:
+        X_tr, y_tr = prep_data["X_tr"], prep_data["y_tr"]
+        X_te, y_te = prep_data["X_te"], prep_data["y_te"]
+        le, n_classes = prep_data["le"], prep_data["n_classes"]
+        classical = is_classical_model(model_type)
+
+        # Build
+        input_shape = (config.signal.window_size, config.dataset.n_channels)
+        model_params = merge_hyperparameters(model_type, config.model.model_dump())
+        model = build_model(model_type, input_shape, n_classes, config.training.lr, model_params)
+        n_params, trainable_params, _ = count_params(model)
+
+        # Train
+        t0 = time.perf_counter()
+        if classical:
+            X_tr_2d = X_tr.reshape(X_tr.shape[0], -1)
+            model.fit(X_tr_2d, np.argmax(y_tr, axis=1))
+            train_time = time.perf_counter() - t0
+            history = None
+            epochs_run = 1
+            avg_epoch_time = train_time
+            avg_throughput = len(X_tr_2d) / max(train_time, 1e-9)
+        else:
+            history = model.fit(
+                X_tr, y_tr,
+                validation_split=config.training.validation_split,
+                epochs=config.training.epochs,
+                batch_size=config.training.batch_size,
+                verbose=verbose,
+            )
+            train_time = time.perf_counter() - t0
+            epochs_run = len(history.history["loss"])
+            avg_epoch_time = train_time / max(1, epochs_run)
+            avg_throughput = len(X_tr) / max(avg_epoch_time, 1e-9)
+
+        # Evaluate
+        X_te_model = X_te.reshape(X_te.shape[0], -1) if classical else X_te
+        t0_inf = time.perf_counter()
+        y_prob = model.predict_proba(X_te_model)
+        t_inf = time.perf_counter() - t0_inf
+        latency_ms = (t_inf / max(len(X_te), 1)) * 1000.0
+
+        y_pred = np.argmax(y_prob, axis=1)
+        y_true = np.argmax(y_te, axis=1)
+        class_names = [f"Class-{c}" for c in le.classes_]
+        metrics = compute_all_classification_metrics(
+            y_true, y_pred, y_prob, y_te, n_classes, class_names=class_names
+        )
+        metrics.update({f"prep_{k}": v for k, v in prep_data["preprocessing_result"].metrics.items()})
+        metrics.update({
+            "model_type": model_type,
+            "prep_method": prep_method,
+            "model_params_total": int(n_params),
+            "model_params_trainable": int(trainable_params),
+            "inference_latency_ms": round(latency_ms, 4),
+            "epochs_run": epochs_run,
+            "avg_throughput_samples_per_sec": round(avg_throughput, 1),
+            "avg_epoch_time_sec": round(avg_epoch_time, 2),
+        })
+
+        # Save model
+        model_path = None
+        if save_model_flag:
+            ext = ".pkl" if classical else ".pt"
+            model_path = str(output_dir / f"model_{model_type}_{prep_method}{ext}")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            save_model(model, model_path, model_type)
+
+        # Visualise
+        if not skip_visualization:
+            viz_dir = output_dir / "visualizations" / f"{model_type}_{prep_method}"
+            viz_dir.mkdir(parents=True, exist_ok=True)
+            if history is not None:
+                plot_training_curves(history, viz_dir, model_type, prep_method)
+            plot_confusion_matrix(y_true, y_pred, class_names, viz_dir, model_type, prep_method)
+
+        return ExperimentResult(
+            model_type=model_type,
+            prep_method=prep_method,
+            config=config.model_dump(mode="json"),
+            metrics=metrics,
+            training_time=train_time,
+            inference_time=t_inf,
+            epochs_run=epochs_run,
+            n_params=n_params,
+            trainable_params=trainable_params,
+            history=history.history if history is not None else None,
+            model_path=model_path,
+            status="OK",
+        )
+    except Exception as e:  # noqa: BLE001 - a failed model must not abort the whole run
+        if verbose:
+            traceback.print_exc()
+        return ExperimentResult.failed(config, model_type, prep_method, str(e))
+
 
 def run_single_experiment(
     config: ExperimentConfig,
@@ -52,208 +181,55 @@ def run_single_experiment(
     model_type: Optional[str] = None,
     save_model_flag: bool = True,
     skip_visualization: bool = False,
-    output_dir: Optional[Path] = None
+    output_dir: Optional[Path] = None,
 ) -> ExperimentResult:
-    """
-    Run a single preprocessing + training experiment.
-    """
+    """Run one preprocessing + training + evaluation experiment."""
+    config = config.model_copy(deep=True)
     prep_method = prep_method or config.preprocessing.method
-    model_type = model_type or config.model.__dict__.get('type', 'svm')
-
-    log = {}
-    output_dir = output_dir or config.output_dir
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+    model_type = model_type or config.model.type
     config.preprocessing.method = prep_method
+    output_dir = Path(output_dir or config.output_dir)
 
-    print(f"\n{'='*70}")
-    print(f"[EXPERIMENT] {prep_method.upper()} + {model_type.upper()}")
-    print(f"{'='*70}")
-
+    print(f"\n{'=' * 70}\n[EXPERIMENT] {prep_method.upper()} + {model_type.upper()}\n{'=' * 70}")
     try:
-        # 1. Preprocessing pipeline
-        with Timer("Preprocessing", log):
-            pipeline = PreprocessingPipeline(config)
-            prep_result = pipeline.prepare_for_training(method=prep_method)
-
-        X_tr, y_tr = prep_result['X_tr'], prep_result['y_tr']
-        X_te, y_te = prep_result['X_te'], prep_result['y_te']
-        le, n_classes = prep_result['le'], prep_result['n_classes']
-
-        prep_metrics = {f"prep_{k}": v for k, v in prep_result['preprocessing_result'].metrics.items()}
-
-        # 2. Build model
-        with Timer("Build Model", log):
-            input_shape = (config.signal.window_size, config.dataset.n_channels)
-            model_params = merge_hyperparameters(model_type, config.model.model_dump())
-            model = build_model(model_type, input_shape, n_classes, config.training.lr, model_params)
-
-            n_params, trainable_params, _ = count_params(model)
-
-        # 3. Train model
-        with Timer("Training", log):
-            if is_classical_model(model_type):
-                X_tr_2d = X_tr.reshape(X_tr.shape[0], -1)
-                y_tr_1d = np.argmax(y_tr, axis=1)
-
-                t0 = time.perf_counter()
-                model.fit(X_tr_2d, y_tr_1d)
-                train_time = time.perf_counter() - t0
-
-                epochs_run = 1
-                avg_throughput = len(X_tr_2d) / train_time
-                avg_epoch_time = train_time
-                history = None
-            else:
-                t0 = time.perf_counter()
-                history = model.fit(
-                    X_tr, y_tr,
-                    validation_split=config.training.validation_split,
-                    epochs=config.training.epochs,
-                    batch_size=config.training.batch_size,
-                    verbose=1
-                )
-                train_time = time.perf_counter() - t0
-                epochs_run = len(history.history['loss'])
-                avg_epoch_time = train_time / max(1, epochs_run)
-                avg_throughput = len(X_tr) / max(1, avg_epoch_time)
-
-        # 4. Evaluate
-        with Timer("Evaluation", log):
-            t0_inf = time.perf_counter()
-
-            if is_classical_model(model_type):
-                X_te_2d = X_te.reshape(X_te.shape[0], -1)
-                y_prob = model.predict_proba(X_te_2d)
-            else:
-                y_prob = model.predict_proba(X_te)
-
-            t_inf = time.perf_counter() - t0_inf
-            latency_ms = (t_inf / len(X_te)) * 1000.0
-
-            y_pred = np.argmax(y_prob, axis=1)
-            y_true = np.argmax(y_te, axis=1)
-
-            metrics = compute_all_classification_metrics(
-                y_true, y_pred, y_prob, y_te, n_classes,
-                class_names=[f"Class-{c}" for c in le.classes_]
-            )
-
-            metrics.update({
-                'model_type': model_type,
-                'prep_method': prep_method,
-                'model_params_total': int(n_params),
-                'model_params_trainable': int(trainable_params),
-                'inference_latency_ms': round(latency_ms, 4),
-                'epochs_run': epochs_run,
-                'avg_throughput_samples_per_sec': round(avg_throughput, 1),
-                'avg_epoch_time_sec': round(avg_epoch_time, 2),
-            })
-            metrics.update(prep_metrics)
-
-        # 5. Save model
-        model_path = None
-        if save_model_flag:
-            ext = ".pkl" if is_classical_model(model_type) else ".pt"
-            model_path = str(output_dir / f"model_{model_type}_{prep_method}{ext}")
-            save_model(model, model_path, model_type)
-
-        # 6. Visualizations
-        if not skip_visualization:
-            viz_dir = output_dir / "visualizations" / f"{model_type}_{prep_method}"
-            viz_dir.mkdir(parents=True, exist_ok=True)
-
-            if not is_classical_model(model_type) and history:
-                plot_training_curves(history, viz_dir, model_type, prep_method)
-
-            plot_confusion_matrix(
-                y_true, y_pred,
-                [f"Class-{c}" for c in le.classes_],
-                viz_dir, model_type, prep_method
-            )
-
-        # 7. Prepare result
-        result = ExperimentResult(
-            model_type=model_type,
-            prep_method=prep_method,
-            config=config.model_dump(mode='json'),
-            metrics=metrics,
-            training_time=log.get("Training", 0),
-            inference_time=t_inf,
-            epochs_run=epochs_run,
-            n_params=n_params,
-            trainable_params=trainable_params,
-            history=history.history if history else None,
-            model_path=model_path,
-            status="OK"
-        )
-
-        print(f"\n[RESULT] {model_type} + {prep_method}")
-        print(f"  Accuracy:  {metrics['accuracy']:.4f}")
-        print(f"  F1 Score:  {metrics['f1_score']:.4f}")
-        print(f"  Precision: {metrics['precision']:.4f}")
-        print(f"  Recall:    {metrics['recall']:.4f}")
-        print(f"  Latency:   {metrics['inference_latency_ms']:.2f} ms")
-
-        return result
-
-    except Exception as e:
-        print(f"[ERROR] Experiment failed: {e}")
-        import traceback
+        prep_data = prepare_dataset_for_prep(config, prep_method)
+    except FileNotFoundError as e:  # missing data: a clear message is enough, no traceback
+        print(f"[ERROR] {e}")
+        return ExperimentResult.failed(config, model_type, prep_method, str(e))
+    except Exception as e:  # noqa: BLE001
         traceback.print_exc()
-        return ExperimentResult(
-            model_type=model_type,
-            prep_method=prep_method,
-            config=config.model_dump(mode='json'),
-            metrics={},
-            training_time=0,
-            inference_time=0,
-            epochs_run=0,
-            n_params=0,
-            trainable_params=0,
-            status="FAILED",
-            error=str(e)
-        )
+        return ExperimentResult.failed(config, model_type, prep_method, f"preprocessing failed: {e}")
 
-
-def run_experiment_cli(
-    config_path: str,
-    prep_method: str,
-    model_type: str,
-    output_dir: str,
-    save_model: bool = True,
-    no_viz: bool = False
-) -> None:
-    """CLI entry point for single experiment."""
-    config = load_config(config_path)
-    config.preprocessing.method = prep_method
-
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    result = run_single_experiment(
-        config, prep_method, model_type,
-        save_model_flag=save_model,
-        skip_visualization=no_viz,
-        output_dir=output_path
+    result = train_and_evaluate(
+        config, prep_data, model_type,
+        save_model_flag=save_model_flag,
+        skip_visualization=skip_visualization,
+        output_dir=output_dir,
+        verbose=1,
     )
-
-    with open(output_path / f"result_{model_type}_{prep_method}.json", 'w') as f:
-        json.dump({
-            'model_type': result.model_type,
-            'prep_method': result.prep_method,
-            'metrics': result.metrics,
-            'training_time': result.training_time,
-            'inference_time': result.inference_time,
-            'epochs_run': result.epochs_run,
-            'n_params': result.n_params,
-            'status': result.status,
-            'error': result.error,
-        }, f, indent=2)
-
     if result.status == "OK":
-        print(f"\n[OK] Experiment complete. Results saved to {output_path}")
-    else:
-        print(f"\n[FAILED] Experiment failed: {result.error}")
-        exit(1)
+        m = result.metrics
+        print(f"\n[RESULT] {model_type} + {prep_method}")
+        print(f"  Accuracy:  {m['accuracy']:.4f}")
+        print(f"  F1 Score:  {m['f1_score']:.4f}")
+        print(f"  Precision: {m['precision']:.4f}")
+        print(f"  Recall:    {m['recall']:.4f}")
+        print(f"  Latency:   {m['inference_latency_ms']:.2f} ms")
+    return result
+
+
+def save_result_json(result: ExperimentResult, path: Path) -> None:
+    """Write a compact JSON summary of one result."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({
+            "model_type": result.model_type,
+            "prep_method": result.prep_method,
+            "metrics": result.metrics,
+            "training_time": result.training_time,
+            "inference_time": result.inference_time,
+            "epochs_run": result.epochs_run,
+            "n_params": result.n_params,
+            "status": result.status,
+            "error": result.error,
+        }, f, indent=2, default=str)

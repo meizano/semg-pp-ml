@@ -4,8 +4,6 @@ Provides setup instructions and execution flow for running sEMG pipeline on Goog
 """
 from __future__ import annotations
 
-import os
-from pathlib import Path
 
 
 def get_colab_setup_instructions() -> str:
@@ -16,19 +14,19 @@ def get_colab_setup_instructions() -> str:
 # Copy and run the following cells in Google Colab:
 
 # 1. Clone repository & install dependencies
-!git clone https://github.com/your-username/semg-pp-ml.git
+!git clone https://github.com/meizano/semg-pp-ml.git
 %cd semg-pp-ml
-!pip install -e .
+!pip install -e ".[dl]"
 
 # 2. Mount Google Drive (for dataset and model saving)
 from google.colab import drive
 drive.mount('/content/drive')
 
-# 3. Create symlink to dataset in Google Drive if stored there
+# 3. Link the dataset from Google Drive (default location is data/ninapro_db8)
 # !ln -s /content/drive/MyDrive/NinaPro_DB8 ./data/ninapro_db8
 
-# 4. Run CLI training with GPU acceleration
-!python run_cli.py --mode single --prep wavelet --model cnn1d --epochs 30
+# 4. Train with the semg command (uses the GPU when Colab provides one)
+!semg train --prep wavelet --model cnn1d --epochs 30
 """
 
 

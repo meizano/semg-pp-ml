@@ -1,144 +1,173 @@
-# sEMG Preprocessing & Machine Learning Platform for NinaPro DB8
+# sEMG Preprocessing & Machine Learning Platform (NinaPro DB8)
 
-[![Python Version](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-%3E%3D2.0-red.svg)](https://pytorch.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-orange.svg)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Surface EMG preprocessing, feature/window generation and model training for the
+**NinaPro DB8** dataset: classical models, deep learning, transformers, graph networks
+and TinyML export, with a CLI, a Streamlit app and an optional REST API.
 
-A comprehensive Surface Electromyography (sEMG) signal preprocessing and machine learning platform designed for the **NinaPro DB8** dataset. It supports both **Classification** (discrete gesture recognition) and **Regression** (continuous finger kinematics decoding using CyberGlove data), featuring a rich Model Zoo (25+ architectures), detailed epoch-by-epoch datetime CSV logging, real-time performance benchmarking (WPS/FPS & CPU/RAM usage), a standalone CLI runner, Google Colab support, bilingual UI (English & Bahasa Indonesia), and an interactive Streamlit web application with process animations and pipeline visualizers.
-
----
-
-## 🌟 Key Features
-
-1. **Signal Preprocessing Pipeline**:
-   - Butterworth filters (Bandpass / Notch)
-   - Wavelet Denoising
-   - Variational Mode Decomposition (VMD)
-   - Kalman Filtering & Hybrid Butterworth-Kalman pipelines
-   - SNR, PSD periodograms, and RMSE evaluation metrics.
-
-2. **Extensive Model Zoo (25+ Models)**:
-   - **Classical ML**: SVM, Random Forest, KNN, LDA, Naive Bayes, Scikit-Learn MLP.
-   - **Deep Learning (PyTorch)**: MLP, CNN 1D, CNN 2D, Simple RNN, LSTM, BiLSTM, GRU, GRU-LSTM, CNN-RNN, CNN-LSTM, TCN.
-   - **Transformers**: Transformer Encoder, CNN-Transformer, Multi-Scale Attention Fusion Network (MAFN), mEMG Transformer.
-   - **Graph Networks**: GCN, GAT treating EMG channels as graph nodes.
-   - **Embedded / TinyML**: TinyMLP, TinyCNN with ONNX export and Arduino C++ sketch generation (`.ino`) for microcontrollers.
-
-3. **Dual Paradigm Support (Classification vs Regression)**:
-   - **Classification**: Recognizes discrete hand/finger gestures using NinaPro `stimulus` labels (CrossEntropyLoss).
-   - **Regression**: Decodes continuous joint angles using NinaPro `glove` (CyberGlove) kinematic data (MSE/MAE loss).
-
-4. **Detailed CSV Logging with Datetime & Epoch Steps**:
-   - Automatically records every training session and evaluation run into timestamped CSV log files (`outputs/logs/`) capturing ISO datetime, epoch-by-epoch loss, accuracy, validation metrics, and learning rate.
-
-5. **Bilingual Support (English & Bahasa Indonesia)**:
-   - Easily switch languages via JSON configuration files (`config/locales/lang_eng.json` and `config/locales/lang_id.json`).
-
-6. **Standalone CLI Runner & Google Colab Support**:
-   - Run single operations or grid searches from the terminal via `run_cli.py` or run interactively in **Google Colab** using `colab_runner.py`.
-
-7. **Real-Time Performance & Resource Benchmarking**:
-   - Measures inference throughput (**Windows Per Second / WPS**), latency, and system resource utilization (**CPU % & RAM MB** via `psutil`).
+- **Preprocessing**: Butterworth, Kalman, hybrid Butterworth-Kalman, VMD, wavelet and notch, with SNR / PSD / RMSE metrics. Results are cached on disk.
+- **Two paradigms**: classification (gestures from `stimulus`) and regression-ready glove data (`glove`).
+- **Experiments**: single runs and grid searches (preprocessing x model) that compute each preprocessing once.
+- **Augmentation**: label-preserving augmentation and a physiology-inspired synthetic sEMG generator (see below).
 
 ---
 
-## 📦 Installation Guide
+## 1. Install
 
-### Prerequisites
-- Python 3.10 or higher
-- Git
+Requires Python 3.10+.
 
-### Step-1: Clone the Repository
 ```bash
-git clone https://github.com/your-username/semg-pp-ml.git
+git clone https://github.com/meizano/semg-pp-ml.git
 cd semg-pp-ml
+python -m venv .venv
+# Windows PowerShell:  .\.venv\Scripts\Activate.ps1
+# macOS / Linux:       source .venv/bin/activate
+pip install -e ".[dl,ui]"
 ```
 
-### Step-2: Create & Activate Virtual Environment
-**On Windows (PowerShell):**
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-*(If PowerShell restricts script execution, run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process`)*
+Pick only the extras you need:
 
-**On macOS / Linux:**
+| Extra | Adds | Needed for |
+|---|---|---|
+| *(none)* | numpy, scipy, pandas, scikit-learn, PyWavelets, vmdpy, pydantic | preprocessing, classical models, CLI, augmentation |
+| `dl` | torch | CNN, LSTM, transformer, TCN, graph and TinyML models |
+| `ui` | streamlit, plotly | the web app |
+| `tracking` | mlflow | experiment tracking |
+| `api` | FastAPI, SQLAlchemy, Celery, JWT | the optional REST backend |
+| `dev` | pytest, ruff, black | running tests |
+| `all` | everything above | |
+
+Check the install:
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+semg info
 ```
 
-### Step-3: Install Dependencies
-```bash
-pip install --upgrade pip
-pip install -e .
+## 2. Get the data
+
+Put the NinaPro DB8 `.mat` files (`S<subject>_*.mat`, with `emg`, `stimulus` and optionally `glove`) in one folder:
+
+```text
+data/ninapro_db8/          <- dataset.root (default)
+└── train/                 <- dataset.train_dir (default)
+    ├── S1_A1_E1.mat
+    └── ...
 ```
 
----
+If the `.mat` files sit directly in `data/ninapro_db8/`, that works too. Check the layout before training:
 
-## 🚀 How to Use
-
-### 1. Run the Interactive Web App (Streamlit)
 ```bash
+semg check-data --data-dir data/ninapro_db8
+```
+
+## 3. Run
+
+```bash
+# one experiment: preprocessing + model
+semg train --prep butterworth_kalman --model svm --set dataset.subjects=[1,2,3]
+
+# deep model, fewer epochs
+semg train --prep vmd --model cnn1d --epochs 20
+
+# grid search over preprocessing x model (exclusions come from config/grid_search.yaml)
+semg grid --grid-config config/grid_search.yaml --preps raw vmd --models svm rf
+
+# web app
 streamlit run app.py
 ```
-Opens the web app at `http://localhost:8501`.
 
-### 2. Run via Command Line Interface (CLI)
+Results go to `outputs/` (override with `--output`): JSON per run, the trained model, plots and `grid_search_summary.csv`.
+
+`python run_cli.py --mode single|grid|info` still works and maps to the commands above.
+
+### Configuration
+
+Settings come from a YAML file (default `config/default.yaml`), then from the flags, then from `--set`:
+
 ```bash
-python run_cli.py --mode single --prep wavelet --model cnn1d --epochs 20
-```
-Or run a grid search:
-```bash
-python run_cli.py --mode grid
+semg train --config my.yaml --set training.epochs=5 --set model.svm.C=3 --set preprocessing.method=vmd
 ```
 
-### 3. Run on Google Colab
-Open a notebook in Google Colab and run:
+- Values are parsed as YAML (`1e-3`, `[1, 2]`, `true`, `null`).
+- Unknown keys are an error (no silent typos). The same applies to YAML files.
+- Create starter files with `semg init-config`.
+
+Main keys:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `dataset.root` | dataset folder | `data/ninapro_db8` |
+| `dataset.train_dir` / `eval_dir` | subfolders of `root` (absolute paths also work) | `train` / `evaluation` |
+| `dataset.subjects`, `channels`, `classes` | selection | subjects 1-10 |
+| `signal.fs`, `window_size`, `overlap` | windowing (samples) | 2000, 400, 100 |
+| `preprocessing.method` | `raw`, `butterworth`, `kalman`, `butterworth_kalman`, `vmd`, `wavelet`, `notch` | `butterworth_kalman` |
+| `training.*` | epochs, batch size, learning rate, split | |
+| `model.type` | model name (`svm`, `rf`, `knn`, `cnn1d`, `lstm`, `transformer`, ...) | `cnn1d` |
+
+## 4. Python API
+
 ```python
-!git clone https://github.com/your-username/semg-pp-ml.git
-%cd semg-pp-ml
-!pip install -e .
-!python run_cli.py --mode single --prep wavelet --model cnn1d --epochs 25
+from semg_pp_ml.config import load_config, apply_overrides
+from semg_pp_ml.experiments import run_single_experiment, run_grid_search_optimized
+
+cfg = apply_overrides(load_config(), ["dataset.subjects=[1,2]", "training.epochs=5"])
+result = run_single_experiment(cfg, prep_method="raw", model_type="svm")
+print(result.status, result.metrics["accuracy"])
 ```
 
----
+## 5. Augmentation and artificial data
 
-## 🪟 Windows User Tips & Troubleshooting
+`semg_pp_ml.augmentation` (numpy/scipy only) provides:
 
-- **PowerShell Execution Policy**: If script activation fails, run:
-  ```powershell
-  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-  ```
-- **LAN Access**: Run Streamlit across your network:
-  ```bash
-  streamlit run app.py --server.address 0.0.0.0
-  ```
-
----
-
-## 🧪 Data Augmentation & Artificial sEMG Data
-
-`src/semg_pp_ml/augmentation/` (numpy/scipy only) provides:
-
-- **Label-preserving augmentations** for `(n_windows, n_samples, n_channels)` arrays: Gaussian noise at a target SNR, amplitude scaling, time warping, electrode shift, cross-talk, channel dropout, baseline wander, mains hum, and same-class mixup.
-- **A physiology-inspired synthetic generator**: motor-unit pool with size-principle recruitment, biphasic MUAP templates, and class-specific spatial patterns. Higher force classes produce larger RMS (covered by tests).
+- **Label-preserving augmentations** for `(n_windows, n_samples, n_channels)` arrays: Gaussian noise at a target SNR, amplitude scaling, time warping, electrode shift, cross-talk, channel dropout, baseline wander, mains hum and same-class mixup.
+- **A physiology-inspired synthetic generator**: motor-unit pool with size-principle recruitment, biphasic MUAP templates and class-specific spatial patterns. Higher-force classes have higher RMS (covered by tests). It is not biophysically validated, so check it against real recordings before relying on it.
 
 ```bash
-# Generate 200 artificial windows per class for 6 gesture classes
-python -m semg_pp_ml.augmentation --synthetic --n-classes 6 --per-class 200 --out artificial.npz
-
-# Augment an existing dataset (X, y) with two augmented copies per window
-python -m semg_pp_ml.augmentation --input windows.npz --copies 2 --out augmented.npz
-
-# Run tests
-pytest tests/test_augmentation.py
+semg augment --synthetic --n-classes 6 --per-class 200 --out artificial.npz
+semg augment --input windows.npz --copies 2 --out augmented.npz
 ```
 
-The synthetic model is not biophysically validated. Check its output against real recordings before relying on it. A survey of related repositories and what to take from each is in [`docs/related_work.md`](docs/related_work.md).
+A survey of related repositories and what to take from each is in [`docs/related_work.md`](docs/related_work.md).
 
----
+## 6. Web app and API
 
-## 📄 License
-This project is open-source under the [MIT License](LICENSE).
+- `streamlit run app.py`: dataset check, preprocessing lab, model training, grid search, saved artifacts, TinyML export. The Grid Search and Preprocessing Lab pages have a dataset-folder field in the sidebar.
+- `uvicorn semg_pp_ml.api.main:app --reload` (needs the `api` extra): REST backend with JWT auth, background jobs and a SQLite database by default (`DATABASE_URL` for PostgreSQL). Interactive docs at `/docs`.
+
+## 7. Google Colab
+
+```python
+!git clone https://github.com/meizano/semg-pp-ml.git
+%cd semg-pp-ml
+!pip install -e ".[dl]"
+from google.colab import drive; drive.mount('/content/drive')
+!ln -s /content/drive/MyDrive/NinaPro_DB8 ./data/ninapro_db8
+!semg train --prep wavelet --model cnn1d --epochs 30
+```
+
+## 8. Development
+
+```bash
+pip install -e ".[dev,dl]"
+pytest                 # runs in about 20 s on a laptop
+```
+
+Layout:
+
+```text
+src/semg_pp_ml/
+  cli.py              `semg` command (train, grid, check-data, info, init-config, augment)
+  config/             pydantic config models, YAML loading, --set overrides
+  data/               .mat loading, vectorised sliding windows, train/test split
+  preprocessing/      filters, pipeline with caching, signal metrics
+  models/             classical, deep learning, transformer, graph, embedded models
+  experiments/        runner (one run), grid search, tracking
+  augmentation/       augmentation transforms and synthetic sEMG generator
+  metrics/ visualization/ utils/
+  api/                optional FastAPI backend
+app.py  pages/        Streamlit UI
+tests/                pytest suite
+```
+
+## License
+
+MIT (see `LICENSE` once added; the repository does not yet ship a license file).

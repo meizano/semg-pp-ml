@@ -120,7 +120,7 @@ st.divider()
 # Dataset Checker Summary Section
 # -----------------------------------------------------------------------------
 st.subheader(t["dataset_checker_title"])
-data_path = Path("data/ninapro_db8")
+data_path = load_config().dataset.root
 with st.spinner("Inspecting NinaPro DB8 dataset..."):
     ds_report = inspect_ninapro_dataset(data_path)
 
@@ -149,7 +149,7 @@ with col_a:
     - Export preprocessed `.npz` datasets.
     """)
     if st.button("Go to Preprocessing Lab ➡️", key="btn_prep", use_container_width=True):
-        st.switch_page("pages/1_⚡_Preprocessing_Lab.py")
+        st.switch_page("pages/Preprocessing_Lab.py")
 
 with col_b:
     st.markdown("""
@@ -159,7 +159,7 @@ with col_b:
     - Real-time Performance Benchmarking (WPS, Latency, CPU %, RAM MB).
     """)
     if st.button("Go to Model Training Lab ➡️", key="btn_model", use_container_width=True):
-        st.switch_page("pages/2_🧠_Model_Training.py")
+        st.switch_page("pages/Model_Training.py")
 
 st.sidebar.markdown("---")
 st.sidebar.info("💡 **Local & LAN Mode**: Access this app anywhere on your local network.")

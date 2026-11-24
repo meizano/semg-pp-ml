@@ -127,10 +127,10 @@ async def run_training_job(
                 storage_path=result.model_path,
                 size_bytes=os.path.getsize(result.model_path),
                 mime_type="application/octet-stream",
-                metadata={
+                meta={
                     "model_type": model_type,
                     "n_params": result.n_params,
-                    "input_shape": list(train_config.signal.window_size, train_config.dataset.n_channels),
+                    "input_shape": [train_config.signal.window_size, train_config.dataset.n_channels],
                 }
             )
             db.add(model_artifact)

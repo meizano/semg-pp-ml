@@ -41,7 +41,7 @@ st.sidebar.header("Exclusion Rules")
 exclude_raw = st.sidebar.checkbox("Skip raw data with classical models (LDA/SVM/KNN/NB)", value=True)
 
 st.sidebar.header("Shared Training Config")
-data_dir = st.sidebar.text_input("Train Data Folder", r"data\ninapro_db8")
+data_dir = st.sidebar.text_input("Train Data Folder", "data/ninapro_db8")
 subjects = st.sidebar.multiselect("Subjects", list(range(1, 11)), default=[1])
 channels = st.sidebar.multiselect("Channels (0-indexed)", list(range(16)), default=[3, 4, 5, 11, 12, 13])
 epochs = st.sidebar.number_input("Epochs", value=30, min_value=1, max_value=200)

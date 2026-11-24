@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from ..config import ExperimentConfig
 from ..utils.system import get_system_info
-from .schemas.auth import TokenData
+from .schemas import TokenData
 from .models.db import User, UserRole, get_db as get_db_session
 
 

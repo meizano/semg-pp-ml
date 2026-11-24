@@ -3,10 +3,7 @@ MLflow integration for experiment tracking.
 """
 from __future__ import annotations
 
-import json
-import numpy as np
-from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional
 
 try:
     import mlflow

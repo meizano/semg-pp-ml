@@ -1,5 +1,5 @@
 dataset:
-  root: "../ninapro/DB8"
+  root: "data/ninapro_db8"
   train_dir: "train"
   eval_dir: "evaluation"
   subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
